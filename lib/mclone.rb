@@ -252,11 +252,6 @@ module Mclone
     def touch!
       @mtime = DateTime.now if @touch
     end
-
-    #
-    def execute!(session)
-      TODO
-    end
   end
 
 
