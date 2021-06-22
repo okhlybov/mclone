@@ -1,11 +1,8 @@
 # frozen_string_literal: true
 
 
-require 'set'
 require 'date'
 require 'json'
-require 'rbconfig'
-require 'fileutils'
 require 'securerandom'
 
 
@@ -529,8 +526,8 @@ module Mclone
           args << 'move'
         end
         opts.append('--filter', "- /#{Volume::FILE}")
-        opts.append('--filter', "+ #{task.include}") unless task.include.nil? || task.include.empty?
         opts.append('--filter', "- #{task.exclude}") unless task.exclude.nil? || task.exclude.empty?
+        opts.append('--filter', "+ #{task.include}") unless task.include.nil? || task.include.empty?
         args.concat(opts)
         args.append(File.join(volumes.volume(task.source_id).root, task.source_root), File.join(volumes.volume(task.destination_id).root, task.destination_root))
         case system(*args)

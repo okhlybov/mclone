@@ -1,7 +1,7 @@
 # Mclone
 
-Mclone is a utility for offline file synchronization utilizing [Rclone](https://rclone.org) as a backend for doing
-actual file transfer.
+[Mclone](https://github.com/okhlybov/mclone) is a utility for offline file synchronization utilizing the
+[Rclone](https://rclone.org) as a backend for doing actual file transfer.
 
 ## Purpose
 
@@ -42,8 +42,8 @@ $ gem install mclone
 ```
 
 Obviously, the Rclone installation is also required.
-The Mclone will use either the `rclone` executable from the `PATH` environment variable or the contents
-of the `RCLONE` environment variable if it is defined.
+The Mclone will use either the contents of the `RCLONE` environment variable if exists or look though
+the `PATH` environment variable to locate the `rclone` executable.
 
 Once properly installed, the Mclone provides the `mclone` command line utility.
 
@@ -309,7 +309,8 @@ The Rclone is run during task processing but in turn is supplied with this optio
 
 ### Force mode
 
-The Mclone will refuse to automatically perform certain actions which are considered dangerous, such as deleting a volume.
+The Mclone will refuse to automatically perform certain actions which are considered dangerous, such as deleting a volume
+or overwriting existing task.
 In this case a `--force` command line option should be used to pass through.
 
 ### Task operation modes
