@@ -17,6 +17,11 @@ Clamp do
   option ['-n', '--dry-run'], :flag, 'Simulation mode with no on-disk modifications', default: false
   option ['-v', '--verbose'], :flag, 'Verbose operation', default: false
 
+  option ['-V', '--version'], :flag, 'Show version' do
+    puts VERSION
+    exit(true)
+  end
+
   def session
     session = Mclone::Session.new
     session.force = force?
