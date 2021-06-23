@@ -57,7 +57,7 @@ Let's start with the simplest case.
 Suppose you have a data directory `/data` and you'd want to set up the backup of the `/data/files` subdirectory
 into a backup directory `/mnt/backup`. The latter may be an ordinary directory or a mounted portable storage, or whatever.
 
-### 1. Format the Mclone volumes
+### 1. Create volumes
 
 Mclone has a notion of a volume - a file system directory containing the `.mclone` file, which is used as a root directory
 for all Mclone operations.
@@ -100,7 +100,7 @@ $ mclone info
 Each volume is identified by the randomly generated tag shown within the square brackets `[...]`.
 _Obviously, the tags will be different in your case._
 
-### 2. Create the Mclone task
+### 2. Create a task
 
 A Mclone task corresponds to a single Rclone command. It contains the source and destination volume identifiers,
 the source and destination subdirectories _relative to the respective volumes_,
@@ -152,7 +152,7 @@ portable storage directory it will be mounted in next time provided that it will
 The same applies to the Windows system where the portable storage can be appear as different disk drives and yet
 be detectable by the Mclone.
 
-### 3. Modify the Mclone task
+### 3. Modify the task
 
 Once a task is created, its source and destination volumes and directories get fixed and can not be changed.
 Therefore the only way to modify it is to start from scratch preceded by the task deletion with the `mclone task delete` command.
