@@ -618,16 +618,18 @@ module Mclone
     end
     # TODO handle Windows variants
   when /^mingw/ # RubyInstaller's MRI
-    require 'ffi'
-    module FileAPI
-      extend FFI::Library
-      ffi_lib 'kernel32'
-      ffi_convention :stdcall
-      attach_function :disks_mask, :GetLogicalDrives, [], :ulong
-    end
+	module Kernel32
+		require 'fiddle'
+		require 'fiddle/types'
+		require 'fiddle/import'
+		extend Fiddle::Importer
+		dlload('kernel32')
+		include Fiddle::Win32Types
+		extern 'DWORD WINAPI GetLogicalDrives()'
+	end  
     def self.system_mounts
-      mask = FileAPI.disks_mask
       mounts = []
+      mask = Kernel32.GetLogicalDrives
       ('A'..'Z').each do |x|
         mounts << "#{x}:" if mask & 1 == 1
         mask >>= 1

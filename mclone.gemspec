@@ -16,5 +16,4 @@ Gem::Specification.new do |spec|
   spec.platform      = Gem::Platform::RUBY
   spec.required_ruby_version = '>= 2.5.0'
   spec.add_runtime_dependency 'clamp', '~> 1.3'
-  spec.add_runtime_dependency 'ffi', '~> 1.15'
 end
