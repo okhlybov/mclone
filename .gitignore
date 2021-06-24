@@ -10,6 +10,13 @@
 /test/version_tmp/
 /tmp/
 
+# Windows installer
+/windows/dist
+/windows/cache
+/windows/*.zip
+/windows/*.auto.*
+/windows/*.exe
+
 # Used by dotenv library to load environment variables.
 # .env
 
