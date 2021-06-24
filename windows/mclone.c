@@ -10,6 +10,8 @@ int main(int argc, char** argv, char** env) {
 	GetModuleFileName(NULL, root, SZ);
 	int envc, i, s = strlen(root);
 	while(root[s] != '\\' && root[s] != '/') --s;
+	--s;
+	while(root[s] != '\\' && root[s] != '/') --s;
 	root[s] = '\0';
 	// Force forward slash as a file name separator
 	s = strlen(root);
@@ -18,10 +20,12 @@ int main(int argc, char** argv, char** env) {
 		printf("*** root\n%s\n", root);
 	#endif
 	// Command line
+	char* ruby0 = malloc(SZ*sizeof(char));
+	snprintf(ruby0, SZ, "%s/ruby/bin/ruby.exe", root);
 	char* ruby = malloc(SZ*sizeof(char));
-	snprintf(ruby, SZ, "%s/ruby/bin/ruby.exe", root);
+	snprintf(ruby, SZ, "\"%s\"", ruby0);
 	char* mclone = malloc(SZ*sizeof(char));
-	snprintf(mclone, SZ, "%s/ruby/bin/mclone", root);
+	snprintf(mclone, SZ, "\"%s/ruby/bin/mclone\"", root);
 	char** _argv = malloc((argc+2)*sizeof(char*));
 	i = 0;
 	_argv[i++] = ruby;
@@ -44,5 +48,5 @@ int main(int argc, char** argv, char** env) {
 		for(int x = 0; _env[x]; ++x) printf("%s\n", _env[x]);
 		printf("\n");
 	#endif
-	return _spawnvpe(_P_WAIT, ruby, (const char* const*)_argv,  (const char* const*)_env);
+	return _spawnvpe(_P_WAIT, ruby0, (const char* const*)_argv,  (const char* const*)_env);
 };
