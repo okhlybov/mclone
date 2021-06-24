@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# pacboy -S zip unzip p7zip gcc:i
+# pacboy -S zip: unzip: p7zip: gcc:i
 
 set -e
 
@@ -18,11 +18,11 @@ dist=$root/dist
 cache=$root/cache
 
 rm -rf "$dist"
-mkdir -p "$dist/doc"
+mkdir -p "$dist"/{bin,doc}
 
 cp ../*.md "$dist/doc"
 
-gcc -O2 -DNDEBUG -s -o "$dist/mclone.exe" mclone.c
+gcc -O2 -DNDEBUG -s -o "$dist/bin/mclone.exe" mclone.c
 
 (
 	cd "$dist"
@@ -40,9 +40,11 @@ gcc -O2 -DNDEBUG -s -o "$dist/mclone.exe" mclone.c
 	find -not -name '*.exe' -and -type f -exec rm -rf {} \;
 )
 
-(
-	cd "$dist"
-	zip -r -9 ../$tag.zip *
-)
+echo "
+	#define MyAppVersion \"$version-$release\"
+	#define MySetup \"$tag\"
+" > mclone.auto.iss
+
+start mclone.iss # This requires .iss to be properly registered
 
 #
