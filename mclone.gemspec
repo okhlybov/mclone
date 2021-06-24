@@ -12,7 +12,7 @@ Gem::Specification.new do |spec|
   spec.license       = 'BSD-3-Clause'
   spec.executables   << 'mclone'
   spec.files         = Dir['lib/**/*.rb'] + Dir['bin/*']
-  spec.extra_rdoc_files = ['README.md']
+  spec.extra_rdoc_files = ['README.md', 'CHANGES.md']
   spec.platform      = Gem::Platform::RUBY
   spec.required_ruby_version = '>= 2.5.0'
   spec.add_runtime_dependency 'clamp', '~> 1.3'
