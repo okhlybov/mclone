@@ -10,6 +10,9 @@
 /test/version_tmp/
 /tmp/
 
+*.lock
+.idea/*
+
 # Windows installer
 /windows/dist
 /windows/cache

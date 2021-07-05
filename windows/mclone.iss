@@ -6,7 +6,7 @@
 #define MyAppURL "https://github.com/okhlybov/mclone"
 #define MyAppExeName "mclone.exe"
 
-#include "mclone.auto.iss"
+#include "mclone.auto.inc"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
@@ -23,7 +23,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 LicenseFile=..\LICENSE
-InfoAfterFile=..\README.md
+InfoBeforeFile=README.txt
 OutputDir=.
 OutputBaseFilename={#MySetup}
 Compression=lzma
@@ -40,8 +40,11 @@ Source: "dist\doc\*"; DestDir: "{app}\doc"; Flags: ignoreversion recursesubdirs 
 Source: "dist\rclone\*"; DestDir: "{app}\rclone"; Flags: ignoreversion recursesubdirs createallsubdirs setntfscompression
 Source: "dist\ruby\*"; DestDir: "{app}\ruby"; Flags: ignoreversion recursesubdirs createallsubdirs setntfscompression
 
+[Icons]
+Name: "{group}\{#MyAppName} README"; Filename: "{app}\doc\README.html"
+
 [Tasks]
-Name: "syspath"; Description: "Include mclone in system wide PATH"
+Name: "syspath"; Description: "Include mclone.exe in system wide PATH"
 
 [Code]
 

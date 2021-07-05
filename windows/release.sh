@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # pacboy -S zip: unzip: p7zip: gcc:i
+# gem install redcarpet
 
 set -e
 
@@ -20,9 +21,11 @@ cache=$root/cache
 rm -rf "$dist"
 mkdir -p "$dist"/{bin,doc}
 
-cp ../*.md "$dist/doc"
+cp ../*.md "$dist"/doc
 
-gcc -O2 -DNDEBUG -s -o "$dist/bin/mclone.exe" mclone.c
+gcc -O2 -DNDEBUG -s -o "$dist"/bin/mclone.exe mclone.c
+
+ruby ../md2html.rb ../README.md "$dist"/doc/README.html
 
 (
 	cd "$dist"
@@ -36,14 +39,14 @@ gcc -O2 -DNDEBUG -s -o "$dist/bin/mclone.exe" mclone.c
 	cd "$dist/ruby"
 	cmd /c "bin\\gem install mclone -v $version"
 	rm -rf include packages share ridk_use lib/*.a lib/pkgconfig lib/ruby/gems/*/cache/*
-	cd "$dist/rclone"
+	cd "$dist"/rclone
 	find -not -name '*.exe' -and -type f -exec rm -rf {} \;
 )
 
 echo "
 	#define MyAppVersion \"$version-$release\"
 	#define MySetup \"$tag\"
-" > mclone.auto.iss
+" > mclone.auto.inc
 
 start mclone.iss # This requires .iss to be properly registered
 

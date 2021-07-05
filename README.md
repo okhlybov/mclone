@@ -21,15 +21,15 @@ In a more complex scenario there may be multiple one-way or two-way point-to-poi
 employing portable storage as a "shuttle" or a "ferry".
 
 All in all the synchronization task boils down to copying or synchronizing the contents of two local directories. However,
-since portable storage is involved, the actual file paths may change between synchronizations as a storage device can be
+since portable storage is involved, the actual file paths may change between synchronizations as a storage can be
 mounted under different mount points on *NIX system or change the disk drive on Windows system.
 
-While the Rclone itself is a great tool for local file synchronization, typing the command line for execution in this case
-becomes tedious and error prone where the possible cost of error is a backup corruption due to wrong paths or misspelled flags.
+While the Rclone itself is a great tool for local file synchronization, typing command line to be executed in this case
+becomes tedious and error prone where possible cost of error is a backup corruption due to wrong paths or misspelled flags.
 
 This is where the Mclone comes in.
-It is designed to automatize the Rclone synchronization process by memorizing the command line options and detecting
-the proper source and destination locations wherever they are.
+It is designed to automatize the Rclone synchronization process by memorizing command line options and detecting
+proper source and destination locations wherever they are.
 
 ## Installation
 
