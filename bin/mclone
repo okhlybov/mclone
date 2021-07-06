@@ -46,7 +46,7 @@ Clamp do
       $stdout.puts
       $stdout.puts '## Volumes'
       $stdout.puts
-      s.volumes.each do |volume| { $stdout.puts "* [#{volume.id}] :: (#{volume.root})" }
+      s.volumes.each { |volume| $stdout.puts "* [#{volume.id}] :: (#{volume.root})" }
       stales = []
       intacts = []
       intact_tasks = s.intact_tasks
