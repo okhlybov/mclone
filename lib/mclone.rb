@@ -270,12 +270,9 @@ module Mclone
     #
     def resolve(id)
       case (ids = super).size
-      when 0
-        raise(Task::Error, %(no task matching "#{id}" pattern found))
-      when 1
-        ids.first
-      else
-        raise(Task::Error, %(ambiguous "#{id}" pattern: two or more tasks match))
+      when 0 then raise(Task::Error, %(no task matching "#{id}" pattern found))
+      when 1 then ids.first
+      else raise(Task::Error, %(ambiguous "#{id}" pattern: two or more tasks match))
       end
     end
 
@@ -388,12 +385,9 @@ module Mclone
     #
     def resolve(id)
       case (ids = super).size
-      when 0
-        raise(Volume::Error, %(no volume matching "#{id}" pattern found))
-      when 1
-        ids.first
-      else
-        raise(Volume::Error, %(ambiguous "#{id}" pattern: two or more volumes match))
+      when 0 then raise(Volume::Error, %(no volume matching "#{id}" pattern found))
+      when 1 then ids.first
+      else raise(Volume::Error, %(ambiguous "#{id}" pattern: two or more volumes match))
       end
     end
 
@@ -438,22 +432,20 @@ module Mclone
     def format_volume!(dir)
       mclone = File.join(dir, Volume::FILE)
       raise(Session::Error, %(refuse to overwrite existing Mclone volume file "#{mclone}")) if File.exist?(mclone) && !force?
-      volume = Volume.new(mclone)
-      @volumes << volume
-      volume.commit!(true) unless simulate? # Force creating a new (empty) volume
+      @volumes << (volume = Volume.new(mclone))
+      volume.commit!(true) unless simulate? # Force creation of a new (empty) volume
       self
     end
 
     #
     def restore_volume!(dir)
-      volume = Volume.restore(File.join(dir, Volume::FILE))
-      @volumes << volume
+      @volumes << Volume.restore(File.join(dir, Volume::FILE))
       self
     end
 
     #
     def restore_volumes!
-      (Mclone.environment_mounts + Mclone.system_mounts).each { |dir| restore_volume!(dir) rescue Errno::ENOENT }
+      (Mclone.environment_mounts + Mclone.system_mounts + [ENV['HOME']]).each { |dir| restore_volume!(dir) rescue Errno::ENOENT }
       self
     end
 
