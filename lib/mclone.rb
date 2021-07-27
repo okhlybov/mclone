@@ -11,7 +11,7 @@ require 'securerandom'
 module Mclone
 
 
-  VERSION = '0.1.1'
+  VERSION = '0.2.0'
 
 
   #
@@ -132,6 +132,48 @@ module Mclone
 
 
   #
+  class Cryptor
+
+    MODES = %i[encrypt decrypt].freeze
+
+    #
+    attr_reader :mode
+
+    #
+    attr_reader :token
+
+    def initialize(mode = nil, token: nil, password: nil)
+      unless mode.nil?
+        @mode = MODES.include?(mode = mode.intern) ? mode : raise(Task::Error, %(unknown cryptor mode "#{mode}")) # FIXME specific error class
+        raise(Task::Error, %(either Rclone crypt token or plain password is expected, not both)) if !token.nil? && !password.nil?
+        @token = token unless token.nil?
+        @token = %x('#{Mclone.rclone}' obscure '#{password}').strip unless password.nil? # TODO proper string escaping
+        @token = %x('#{Mclone.rclone}' obscure '#{SecureRandom.alphanumeric(16)}').strip if @token.nil?
+      end
+    end
+
+    #
+    def self.restore(hash)
+      if hash.nil?
+        NOP
+      else
+        obj = allocate
+        obj.send(:initialize, hash.dig(:mode), token: hash.dig(:token))
+        obj
+      end
+    end
+
+    #
+    def to_h
+      mode.nil? ? nil : { mode: mode, token: token }
+    end
+
+    NOP = self.new.freeze
+
+  end
+
+
+  #
   class Task
 
     #
@@ -156,6 +198,8 @@ module Mclone
     #
     attr_reader :include, :exclude
 
+    attr_reader :cryptor
+
     def hash
       @hash ||= source_id.hash ^ destination_id.hash ^ source_root.hash ^ destination_root.hash
     end
@@ -172,47 +216,44 @@ module Mclone
     alias == eql?
 
     #
-    def initialize(source_id, source_root, destination_id, destination_root)
+    def initialize(mode, source_id, source_root, destination_id, destination_root, include: nil, exclude: nil, cryptor: nil)
       @touch = false # Indicates that the time stamp should be updated whenever state of self is altered
       @id = SecureRandom.hex(4)
       @source_id = source_id
       @destination_id = destination_id
       @source_root = source_root
       @destination_root = destination_root
-      self.mode = :update
-      self.include = '**'
-      self.exclude = ''
+      self.mode = mode
+      self.include = include
+      self.exclude = exclude
+      @cryptor = cryptor.nil? ? Cryptor::NOP : cryptor
     ensure
       @touch = true
       touch!
     end
 
     #
-    MODES = [:update, :synchronize, :copy, :move].freeze
+    MODES = %i[update synchronize copy move].freeze
 
     #
     def mode=(mode)
-      unless mode.nil?
-        @mode = MODES.include?(mode = mode.intern) ? mode : raise(Task::Error, %(unknown mode "#{mode}"))
-        touch!
-      end
+      @mode = MODES.include?(mode = mode.intern) ? mode : raise(Task::Error, %(unknown mode "#{mode}"))
+      touch!
     end
 
     #
     def include=(mask)
-      unless mask.nil?
-        @include = mask # TODO extensive verification
-        touch!
-      end
+      @include = mask.nil? || mask == '-' ? nil : mask # TODO: verify mask
+      touch!
     end
 
     #
     def exclude=(mask)
-      unless mask.nil?
-        @exclude = mask # TODO extensive verification
-        touch!
-      end
+      @exclude = mask.nil? || mask == '-' ? nil : mask # TODO: verify mask
+      touch!
     end
+
+    @@passwords = {}
 
     #
     def self.restore(hash)
@@ -223,29 +264,34 @@ module Mclone
 
     #
     private def from_h(hash)
-      initialize(hash.extract(:source, :volume), hash.extract(:source, :root), hash.extract(:destination, :volume), hash.extract(:destination, :root))
-      @touch = false
-      @id = hash.extract(:task)
-      self.mode = hash.extract(:mode)
-      # Deleting the mtime key from json
+      initialize(
+        hash.extract(:mode),
+        hash.extract(:source, :volume),
+        hash.extract(:source, :root),
+        hash.extract(:destination, :volume),
+        hash.extract(:destination, :root),
+        include: hash.dig(:include),
+        exclude: hash.dig(:exclude),
+        cryptor: Cryptor.restore(hash.dig(:cryptor))
+      )
       @mtime = DateTime.parse(hash.extract(:mtime)) rescue @mtime
-      self.include = hash.extract(:include) rescue nil
-      self.exclude = hash.extract(:exclude) rescue nil
-    ensure
-      @touch = true
+      @id = hash.extract(:task)
     end
 
     #
     def to_h
-      {
-        mode: mode,
-        include: include,
-        exclude: exclude,
+      hash = {
         task: id,
+        mode: mode,
+        mtime: mtime,
         source: {volume: source_id, root: source_root},
-        destination: {volume: destination_id, root: destination_root},
-        mtime: mtime
+        destination: {volume: destination_id, root: destination_root}
       }
+      x = cryptor.to_h
+      hash[:include] = include unless include.nil?
+      hash[:exclude] = exclude unless exclude.nil?
+      hash[:cryptor] = x unless x.nil?
+      hash
     end
 
     #
@@ -357,7 +403,7 @@ module Mclone
 
     #
     def to_h
-      {mclone: VERSION, volume: id, tasks: tasks.collect(&:to_h)}
+      { mclone: VERSION, volume: id, tasks: tasks.collect(&:to_h) }
     end
 
     # Volume-bound set of tasks belonging to the specific volume
@@ -459,11 +505,8 @@ module Mclone
     end
 
     #
-    def create_task!(source, destination, mode: :update, include: '**', exclude: '')
-      task = Task.new(*locate(source), *locate(destination))
-      task.mode = mode
-      task.include = include
-      task.exclude = exclude
+    def create_task!(mode, source, destination, **kws)
+      task = Task.new(mode, *locate(source), *locate(destination), **kws)
       volumes.each do |volume|
         t = volume.tasks[task]
         raise(Session::Error, %(refuse to overwrite existing task "#{t.id}")) unless t.nil? || force?
@@ -473,12 +516,12 @@ module Mclone
     end
 
     #
-    def modify_task!(id, mode:, include:, exclude:)
+    def modify_task!(id, mode: nil, include: nil, exclude: nil)
       ts = tasks
       task = ts.task(ts.resolve(id)).clone
-      task.mode = mode
-      task.include = include
-      task.exclude = exclude
+      task.mode = mode unless mode.nil?
+      task.include = include unless include.nil?
+      task.exclude = exclude unless exclude.nil?
       volumes.each { |volume| volume.tasks << task }
       self
     end
@@ -495,17 +538,15 @@ module Mclone
     def process_tasks!(*ids)
       ts = intact_tasks
       ids = ts.collect(&:id) if ids.empty?
-      rclone = 'rclone' if (rclone = ENV['RCLONE']).nil?
       ids.collect { |id| ts.task(ts.resolve(id)) }.each do |task|
-        args = [rclone]
+        args = [Mclone.rclone]
         opts = [
           simulate? ? '--dry-run' : nil,
           verbose? ? '--verbose' : nil
         ].compact
         case task.mode
         when :update
-          args << 'copy'
-          opts << '--update'
+          args.push('copy', '--update')
         when :synchronize
           args << 'sync'
         when :copy
@@ -577,6 +618,11 @@ module Mclone
 
     end
 
+  end
+
+  #
+  def self.rclone
+    @@rclone ||= (rclone = ENV['RCLONE']).nil? ? 'rclone' : rclone
   end
 
   # Return true if run in the real Windows environment (e.g. not in real *NIX or various emulation layers such as MSYS, Cygwin etc.)

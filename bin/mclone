@@ -54,7 +54,8 @@ Clamp do
         ts = (t = intact_tasks[task]).nil? ? "<#{task.id}>" : "[#{task.id}]"
         svs = s.volumes.volume(task.source_id).nil? ? "<#{task.source_id}>" : "[#{task.source_id}]"
         dvs = s.volumes.volume(task.destination_id).nil? ? "<#{task.destination_id}>" : "[#{task.destination_id}]"
-        xs = ["* #{ts} :: #{task.mode} #{svs}(#{task.source_root}) -> #{dvs}(#{task.destination_root})"]
+        cryptor_mode = task.cryptor.mode.nil? ? nil : "+#{task.cryptor.mode}"
+        xs = ["* #{ts} :: #{task.mode}#{cryptor_mode} #{svs}(#{task.source_root}) -> #{dvs}(#{task.destination_root})"]
         xs << "include #{task.include}" unless task.include.nil? || task.include.empty?
         xs << "exclude #{task.exclude}" unless task.exclude.nil? || task.exclude.empty?
         (t.nil? ? stales : intacts) << xs.join(' :: ')
@@ -97,16 +98,30 @@ Clamp do
     def self.set_task_opts
       modes = Task::MODES.collect(&:to_s).join(' | ')
       option ['-m', '--mode'], 'MODE', "Operation mode (#{modes})", default: Task::MODES.first.to_s
-      option ['-i', '--include'], 'PATTERN', 'Include paths pattern', default: '**'
+      option ['-i', '--include'], 'PATTERN', 'Include paths pattern'
       option ['-x', '--exclude'], 'PATTERN', 'Exclude paths pattern'
     end
 
     subcommand ['new', 'create'], 'Create new SOURCE -> DESTINATION task' do
       set_task_opts
+      option ['-d', '--decrypt'], :flag, 'Decrypt source'
+      option ['-e', '--encrypt'], :flag, 'Encrypt destination'
+      option ['-p', '--password'], 'PASSWORD', 'Plain text password'
+      option ['-t', '--rclone-token'], 'TOKEN', 'Rclone crypt token (obscured password)'
       parameter 'SOURCE', 'Source path'
       parameter 'DESTINATION', 'Destination path'
       def execute
-        session.create_task!(source, destination, mode: resolve_mode(mode), include: include, exclude: exclude).commit!
+        crypt_mode = nil
+        signal_usage_error 'choose either encryption or decryption mode, not both' if decrypt? && encrypt?
+        signal_usage_error 'specify either plain text or Rclone password, not both' if !password.nil? && !rclone_token.nil?
+        crypt_mode = :encrypt if encrypt?
+        crypt_mode = :decrypt if decrypt?
+        session.create_task!(
+          resolve_mode(mode),
+          source,
+          destination,
+  include: include, exclude: exclude, cryptor: Cryptor.new(crypt_mode, password: password, token: rclone_token)
+        ).commit!
       end
     end
 

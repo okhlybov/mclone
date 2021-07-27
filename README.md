@@ -14,7 +14,7 @@ backing up comes back into play.
 
 A sane backup strategy mandates the data copies to be physically separated - be it a next room (building, city or planet)
 computer or just an external drive. Or, even better, the two computers' storages - a primary, where all activity takes place,
-a mirror storage which holds the backup, and a portable storage (USB flash disc, exteral HDD or SSD - whatever) which
+a mirror storage which holds the backup, and a portable storage (USB flash disc, external HDD or SSD - whatever) which
 serves as both an intermediate storage and a means of propagating the changes between the primary and the mirror.
 
 In a more complex scenario there may be multiple one-way or two-way point-to-point data transfer routes between the storages,
