@@ -54,8 +54,8 @@ Clamp do
         ts = (t = intact_tasks[task]).nil? ? "<#{task.id}>" : "[#{task.id}]"
         svs = s.volumes.volume(task.source_id).nil? ? "<#{task.source_id}>" : "[#{task.source_id}]"
         dvs = s.volumes.volume(task.destination_id).nil? ? "<#{task.destination_id}>" : "[#{task.destination_id}]"
-        cryptor_mode = task.cryptor.mode.nil? ? nil : "+#{task.cryptor.mode}"
-        xs = ["* #{ts} :: #{task.mode}#{cryptor_mode} #{svs}(#{task.source_root}) -> #{dvs}(#{task.destination_root})"]
+        crypter_mode = task.crypter.mode.nil? ? nil : "+#{task.crypter.mode}"
+        xs = ["* #{ts} :: #{task.mode}#{crypter_mode} #{svs}(#{task.source_root}) -> #{dvs}(#{task.destination_root})"]
         xs << "include #{task.include}" unless task.include.nil? || task.include.empty?
         xs << "exclude #{task.exclude}" unless task.exclude.nil? || task.exclude.empty?
         (t.nil? ? stales : intacts) << xs.join(' :: ')
@@ -120,7 +120,7 @@ Clamp do
           resolve_mode(mode),
           source,
           destination,
-  include: include, exclude: exclude, cryptor: Cryptor.new(crypt_mode, password: password, token: rclone_token)
+  include: include, exclude: exclude, crypter: Crypter.new(crypt_mode, password: password, token: rclone_token)
         ).commit!
       end
     end

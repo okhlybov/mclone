@@ -132,7 +132,7 @@ module Mclone
 
 
   #
-  class Cryptor
+  class Crypter
 
     MODES = %i[encrypt decrypt].freeze
 
@@ -144,7 +144,7 @@ module Mclone
 
     def initialize(mode = nil, token: nil, password: nil)
       unless mode.nil?
-        @mode = MODES.include?(mode = mode.intern) ? mode : raise(Task::Error, %(unknown cryptor mode "#{mode}")) # FIXME specific error class
+        @mode = MODES.include?(mode = mode.intern) ? mode : raise(Task::Error, %(unknown crypter mode "#{mode}")) # FIXME specific error class
         raise(Task::Error, %(either Rclone crypt token or plain password is expected, not both)) if !token.nil? && !password.nil?
         @token = token unless token.nil?
         @token = %x('#{Mclone.rclone}' obscure '#{password}').strip unless password.nil? # TODO proper string escaping
@@ -198,7 +198,7 @@ module Mclone
     #
     attr_reader :include, :exclude
 
-    attr_reader :cryptor
+    attr_reader :crypter
 
     def hash
       @hash ||= source_id.hash ^ destination_id.hash ^ source_root.hash ^ destination_root.hash
@@ -215,8 +215,10 @@ module Mclone
 
     alias == eql?
 
+    @@tokens = {}
+
     #
-    def initialize(mode, source_id, source_root, destination_id, destination_root, include: nil, exclude: nil, cryptor: nil)
+    def initialize(mode, source_id, source_root, destination_id, destination_root, include: nil, exclude: nil, crypter: nil)
       @touch = false # Indicates that the time stamp should be updated whenever state of self is altered
       @id = SecureRandom.hex(4)
       @source_id = source_id
@@ -226,7 +228,8 @@ module Mclone
       self.mode = mode
       self.include = include
       self.exclude = exclude
-      @cryptor = cryptor.nil? ? Cryptor::NOP : cryptor
+      @crypter = crypter.nil? ? Crypter::NOP : crypter
+      @@tokens[id] = crypter.token unless @@tokens.include?(id) || crypter.mode.nil? || crypter.token.nil?
     ensure
       @touch = true
       touch!
@@ -253,8 +256,6 @@ module Mclone
       touch!
     end
 
-    @@passwords = {}
-
     #
     def self.restore(hash)
       obj = allocate
@@ -264,22 +265,24 @@ module Mclone
 
     #
     private def from_h(hash)
-      initialize(
-        hash.extract(:mode),
-        hash.extract(:source, :volume),
-        hash.extract(:source, :root),
-        hash.extract(:destination, :volume),
-        hash.extract(:destination, :root),
-        include: hash.dig(:include),
-        exclude: hash.dig(:exclude),
-        cryptor: Cryptor.restore(hash.dig(:cryptor))
-      )
-      @mtime = DateTime.parse(hash.extract(:mtime)) rescue @mtime
       @id = hash.extract(:task)
+      @mtime = DateTime.parse(hash.extract(:mtime)) rescue @mtime
+      @source_id = hash.extract(:source, :volume)
+      @destination_id = hash.extract(:destination, :volume)
+      @source_root = hash.extract(:source, :root)
+      @destination_root = hash.extract(:destination, :root)
+      self.mode = hash.extract(:mode)
+      self.include = hash.dig(:include)
+      self.exclude = hash.dig(:exclude)
+      @crypter = Crypter.restore(hash.dig(:crypter)) # !!!!!
+      p hash.dig(:crypter)
+      p @crypter.token
+      @@tokens[id] = crypter.token unless @@tokens.include?(id) || crypter.mode.nil? || crypter.token.nil?
+      p @@tokens[id]
     end
 
     #
-    def to_h
+    def to_h(volume)
       hash = {
         task: id,
         mode: mode,
@@ -287,10 +290,13 @@ module Mclone
         source: {volume: source_id, root: source_root},
         destination: {volume: destination_id, root: destination_root}
       }
-      x = cryptor.to_h
       hash[:include] = include unless include.nil?
       hash[:exclude] = exclude unless exclude.nil?
-      hash[:cryptor] = x unless x.nil?
+      unless crypter.nil? || crypter.mode.nil?
+        c = { mode: crypter.mode }
+        c[:token] = @@tokens[id] if (crypter.mode == :encrypt && source_id == volume.id) || (crypter.mode == :decrypt && destination_id == volume.id)
+        hash[:crypter] = c
+      end
       hash
     end
 
@@ -403,7 +409,7 @@ module Mclone
 
     #
     def to_h
-      { mclone: VERSION, volume: id, tasks: tasks.collect(&:to_h) }
+      { mclone: VERSION, volume: id, tasks: tasks.collect { |task| task.to_h(self) } }
     end
 
     # Volume-bound set of tasks belonging to the specific volume
@@ -638,11 +644,10 @@ module Mclone
   PATH_LIST_SEPARATOR = windows? ? ';' : ':'
 
   # Return list of live user-provided mounts (mount points on *NIX and disk drives on Windows) which may contain Mclone volumes
-  # Look for the $mclone_PATH environment variable
+  # Look for the $MCLONE_PATH environment variable
   def self.environment_mounts
     ENV['MCLONE_PATH'].split(PATH_LIST_SEPARATOR).collect { |path| File.directory?(path) ? path : nil }.compact rescue []
   end
-
   # Return list of live system-managed mounts (mount points on *NIX and disk drives on Windows) which may contain Mclone volumes
   case RbConfig::CONFIG['target_os']
   when 'linux'
