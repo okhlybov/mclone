@@ -15,9 +15,7 @@ module Mclone
 
 
   #
-  class Error < StandardError
-
-  end
+  class Error < StandardError; end
 
   #
   module Refinements
@@ -132,48 +130,6 @@ module Mclone
 
 
   #
-  class Crypter
-
-    MODES = %i[encrypt decrypt].freeze
-
-    #
-    attr_reader :mode
-
-    #
-    attr_reader :token
-
-    def initialize(mode = nil, token: nil, password: nil)
-      unless mode.nil?
-        @mode = MODES.include?(mode = mode.intern) ? mode : raise(Task::Error, %(unknown crypter mode "#{mode}")) # FIXME specific error class
-        raise(Task::Error, %(either Rclone crypt token or plain password is expected, not both)) if !token.nil? && !password.nil?
-        @token = token unless token.nil?
-        @token = %x('#{Mclone.rclone}' obscure '#{password}').strip unless password.nil? # TODO proper string escaping
-        @token = %x('#{Mclone.rclone}' obscure '#{SecureRandom.alphanumeric(16)}').strip if @token.nil?
-      end
-    end
-
-    #
-    def self.restore(hash)
-      if hash.nil?
-        NOP
-      else
-        obj = allocate
-        obj.send(:initialize, hash.dig(:mode), token: hash.dig(:token))
-        obj
-      end
-    end
-
-    #
-    def to_h
-      mode.nil? ? nil : { mode: mode, token: token }
-    end
-
-    NOP = self.new.freeze
-
-  end
-
-
-  #
   class Task
 
     #
@@ -198,7 +154,8 @@ module Mclone
     #
     attr_reader :include, :exclude
 
-    attr_reader :crypter
+    #
+    attr_reader :crypter_mode
 
     def hash
       @hash ||= source_id.hash ^ destination_id.hash ^ source_root.hash ^ destination_root.hash
@@ -215,10 +172,8 @@ module Mclone
 
     alias == eql?
 
-    @@tokens = {}
-
     #
-    def initialize(mode, source_id, source_root, destination_id, destination_root, include: nil, exclude: nil, crypter: nil)
+    def initialize(mode, source_id, source_root, destination_id, destination_root, include: nil, exclude: nil, crypter_mode: nil, crypter_token: nil, crypter_password: nil)
       @touch = false # Indicates that the time stamp should be updated whenever state of self is altered
       @id = SecureRandom.hex(4)
       @source_id = source_id
@@ -228,11 +183,52 @@ module Mclone
       self.mode = mode
       self.include = include
       self.exclude = exclude
-      @crypter = crypter.nil? ? Crypter::NOP : crypter
-      @@tokens[id] = crypter.token unless @@tokens.include?(id) || crypter.mode.nil? || crypter.token.nil?
+      set_crypter_mode crypter_mode
+      unless crypter_mode.nil?
+        raise(Task::Error, %(either Rclone crypt token or plain text password is expected, not both)) if !crypter_token.nil? && !crypter_password.nil?
+        @assigned_token = register_crypter_token crypter_token
+        @assigned_password = crypter_password
+      end
     ensure
       @touch = true
       touch!
+    end
+
+    CRYPTER_MODES = %i[encrypt decrypt].freeze
+
+    @@crypter_tokens = {}
+
+    private def set_crypter_mode(mode)
+      @crypter_mode = mode.nil? ? nil : (CRYPTER_MODES.include?(mode = mode.intern) ? mode : raise(Task::Error, %(unknown crypt mode "#{mode}")))
+    end
+
+    private def register_crypter_token(token)
+      unless token.nil?
+        raise(Task::Error, %(attempt to re-register token for task "#{id}")) unless @@crypter_tokens[id] == token
+        @@crypter_tokens[id] = token if @@crypter_tokens[id].nil?
+      end
+      token
+    end
+
+    # Lazily determine the crypt token from either assigned values or the token repository
+    def crypter_token
+      # Locally assigned token takes precedence over the repository's
+      unless @assigned_token.nil?
+        @@crypter_tokens[id] = @assigned_token unless @@crypter_tokens[id].nil? # Assign repository entry with this local token if not yet assigned
+        @assigned_token
+      else
+        unless @@crypter_tokens[id].nil?
+          @@crypter_tokens[id]
+        else
+          # If token is neither locally assigned nor in repository, try to construct it from the password
+          @@crypter_tokens[id] =
+            if @assigned_password.nil?
+              %x('#{Mclone.rclone}' obscure '#{SecureRandom.alphanumeric(16)}').strip # Create Rclone token from randomly generated password
+            else
+              %x('#{Mclone.rclone}' obscure '#{@assigned_password}').strip # Create Rclone token from locally assigned plain text password
+            end
+        end
+      end
     end
 
     #
@@ -265,8 +261,9 @@ module Mclone
 
     #
     private def from_h(hash)
+      @touch = false
       @id = hash.extract(:task)
-      @mtime = DateTime.parse(hash.extract(:mtime)) rescue @mtime
+      @mtime = DateTime.parse(hash.extract(:mtime)) rescue DateTime.now # Deleting mtime entry from json can be used to modify data out of mclone
       @source_id = hash.extract(:source, :volume)
       @destination_id = hash.extract(:destination, :volume)
       @source_root = hash.extract(:source, :root)
@@ -274,11 +271,10 @@ module Mclone
       self.mode = hash.extract(:mode)
       self.include = hash.dig(:include)
       self.exclude = hash.dig(:exclude)
-      @crypter = Crypter.restore(hash.dig(:crypter)) # !!!!!
-      p hash.dig(:crypter)
-      p @crypter.token
-      @@tokens[id] = crypter.token unless @@tokens.include?(id) || crypter.mode.nil? || crypter.token.nil?
-      p @@tokens[id]
+      set_crypter_mode hash.dig(:crypter, :mode)
+      @assigned_token = register_crypter_token(hash.dig(:crypter, :token)) unless crypter_mode.nil?
+    ensure
+      @touch = true
     end
 
     #
@@ -292,10 +288,10 @@ module Mclone
       }
       hash[:include] = include unless include.nil?
       hash[:exclude] = exclude unless exclude.nil?
-      unless crypter.nil? || crypter.mode.nil?
-        c = { mode: crypter.mode }
-        c[:token] = @@tokens[id] if (crypter.mode == :encrypt && source_id == volume.id) || (crypter.mode == :decrypt && destination_id == volume.id)
-        hash[:crypter] = c
+      unless crypter_mode.nil?
+        hash[:crypter] = crypter = { mode: crypter_mode }
+        # Make sure the token won't get into the encrypted volume's task
+        crypter[:token] = crypter_token if (crypter_mode == :encrypt && source_id == volume.id) || (crypter_mode == :decrypt && destination_id == volume.id)
       end
       hash
     end
@@ -383,11 +379,6 @@ module Mclone
     end
 
     #
-    def dirty?
-      tasks.modified?
-    end
-
-    #
     def hash
       id.hash
     end
@@ -399,7 +390,7 @@ module Mclone
 
     #
     def commit!(force = false)
-      if force || dirty?
+      if force || tasks.modified?
         open(file, 'w') do |stream|
           stream << JSON.pretty_generate(to_h)
           tasks.commit!
