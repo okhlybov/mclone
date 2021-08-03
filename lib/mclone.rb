@@ -551,40 +551,51 @@ module Mclone
 
     #
     def process_tasks!(*ids)
-      ts = intact_tasks
-      ids = ts.collect(&:id) if ids.empty?
-      ids.collect { |id| ts.task(ts.resolve(id)) }.each do |task|
+      failed = false
+      intacts = intact_tasks
+      ids = intacts.collect(&:id) if ids.empty?
+      ids.collect { |id| intacts.task(intacts.resolve(id)) }.each do |task|
+        source_path = File.join(volumes.volume(task.source_id).root, task.source_root.nil? || task.source_root.empty? ? '' : task.source_root)
+        destination_path = File.join(volumes.volume(task.destination_id).root, task.destination_root.nil? || task.destination_root.empty? ? '' : task.destination_root)
         args = [Mclone.rclone]
         opts = [
+          '--config', Mclone.windows? ? 'NUL' : '/dev/null',
           simulate? ? '--dry-run' : nil,
           verbose? ? '--verbose' : nil
         ].compact
+        opts.append('--crypt-password', task.crypter_token) unless task.crypter_mode.nil?
+        case task.crypter_mode
+        when :encrypt then opts.append('--crypt-remote', destination_path)
+        when :decrypt then opts.append('--crypt-remote', source_path)
+        end
         case task.mode
-        when :update
-          args.push('copy', '--update')
-        when :synchronize
-          args << 'sync'
-        when :copy
-          args << 'copy'
-        when :move
-          args << 'move'
+        when :update then args.push('copy', '--update')
+        when :synchronize then args << 'sync'
+        when :copy then args << 'copy'
+        when :move then args << 'move'
         end
         opts.append('--filter', "- /#{Volume::FILE}")
         opts.append('--filter', "- #{task.exclude}") unless task.exclude.nil? || task.exclude.empty?
         opts.append('--filter', "+ #{task.include}") unless task.include.nil? || task.include.empty?
         args.concat(opts)
-        args.append(
-          File.join(volumes.volume(task.source_id).root, task.source_root.nil? ? EMPTY_STRING : task.source_root),
-          File.join(volumes.volume(task.destination_id).root, task.destination_root.nil? ? EMPTY_STRING : task.destination_root)
-        )
+        case task.crypter_mode
+        when nil then args.append(source_path, destination_path)
+        when :encrypt then args.append(source_path, ':crypt:')
+        when :decrypt then args.append(':crypt:', destination_path)
+        end
+        $stdout << args.join(' ') << "\n" if verbose?
         case system(*args)
-        when nil then raise(Session::Error, %(failed to execute "#{args.first}"))
-        when false then exit($?)
+        when nil
+          $stderr << %(failed to execute "#{args.first}") << "\n" if verbose?
+          failed = true
+        when false
+          $stderr << %(Rclone exited with status #{$?.to_i}) << "\n" if verbose?
+          failed = true
         end
       end
+      raise(Session::Error, "there were Rclone failures") if failed
+      self
     end
-
-    EMPTY_STRING = ''
 
     # Collect all tasks from all loaded volumes which are ready to be executed
     def intact_tasks
@@ -658,7 +669,7 @@ module Mclone
   when 'linux'
     # Linux OS
     def self.system_mounts
-      # Query on /proc for currently mounted file systems
+      # Query /proc for currently mounted file systems
       IO.readlines('/proc/self/mountstats').collect do |line|
         mount = line.split[4]
         UNIX_SYSTEM_MOUNTS.match?(mount) || !File.directory?(mount) ? nil : mount
