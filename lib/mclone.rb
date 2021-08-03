@@ -65,6 +65,11 @@ module Mclone
       @objects.empty?
     end
 
+    #
+    def size
+      @objects.size
+    end
+
     def initialize
       @ids = {} # { id => object }
       @objects = {} # { object => object }
@@ -204,8 +209,7 @@ module Mclone
 
     private def register_crypter_token(token)
       unless token.nil?
-        raise(Task::Error, %(attempt to re-register token for task "#{id}")) unless @@crypter_tokens[id] == token
-        @@crypter_tokens[id] = token if @@crypter_tokens[id].nil?
+        @@crypter_tokens[id] = @@crypter_tokens[id].nil? ? token : raise(Task::Error, %(attempt to re-register token for task "#{id}"))
       end
       token
     end
@@ -238,18 +242,21 @@ module Mclone
     def mode=(mode)
       @mode = MODES.include?(mode = mode.intern) ? mode : raise(Task::Error, %(unknown mode "#{mode}"))
       touch!
+      mode
     end
 
     #
     def include=(mask)
       @include = mask.nil? || mask == '-' ? nil : mask # TODO: verify mask
       touch!
+      mask
     end
 
     #
     def exclude=(mask)
       @exclude = mask.nil? || mask == '-' ? nil : mask # TODO: verify mask
       touch!
+      mask
     end
 
     #
@@ -266,8 +273,8 @@ module Mclone
       @mtime = DateTime.parse(hash.extract(:mtime)) rescue DateTime.now # Deleting mtime entry from json can be used to modify data out of mclone
       @source_id = hash.extract(:source, :volume)
       @destination_id = hash.extract(:destination, :volume)
-      @source_root = hash.extract(:source, :root)
-      @destination_root = hash.extract(:destination, :root)
+      @source_root = hash.dig(:source, :root)
+      @destination_root = hash.dig(:destination, :root)
       self.mode = hash.extract(:mode)
       self.include = hash.dig(:include)
       self.exclude = hash.dig(:exclude)
@@ -283,13 +290,15 @@ module Mclone
         task: id,
         mode: mode,
         mtime: mtime,
-        source: {volume: source_id, root: source_root},
-        destination: {volume: destination_id, root: destination_root}
+        source: { volume: source_id },
+        destination: { volume: destination_id }
       }
+      hash[:source][:root] = source_root unless source_root.nil? || source_root.empty?
+      hash[:destination][:root] = destination_root unless destination_root.nil? || destination_root.empty?
       hash[:include] = include unless include.nil?
       hash[:exclude] = exclude unless exclude.nil?
       unless crypter_mode.nil?
-        hash[:crypter] = crypter = { mode: crypter_mode }
+        crypter = hash[:crypter] = { mode: crypter_mode }
         # Make sure the token won't get into the encrypted volume's task
         crypter[:token] = crypter_token if (crypter_mode == :encrypt && source_id == volume.id) || (crypter_mode == :decrypt && destination_id == volume.id)
       end
@@ -299,6 +308,7 @@ module Mclone
     #
     def touch!
       @mtime = DateTime.now if @touch
+      self
     end
   end
 
@@ -347,8 +357,6 @@ module Mclone
     #
     attr_reader :file
 
-    #
-    attr_reader :tasks
 
     #
     def root
@@ -356,26 +364,31 @@ module Mclone
     end
 
     #
-    def initialize(file)
-      @file = file
+    attr_reader :session
+
+    #
+    def initialize(session, file)
       @id = SecureRandom.hex(4)
-      @tasks = VolumeTaskSet.new(self)
+      @session = session
+      @file = file
     end
 
     #
-    def self.restore(file)
+    def self.restore(session, file)
       obj = allocate
-      obj.send(:from_file, file)
+      obj.send(:from_file, session, file)
       obj
     end
 
     #
-    private def from_file(file)
-      initialize(file)
+    private def from_file(session, file)
       hash = JSON.parse(IO.read(file), symbolize_names: true)
+      @id = hash.extract(:volume)
+      @session = session
+      @file = file
       raise(Volume::Error, %(unsupported Mclone volume format version "#{version}")) unless hash.extract(:mclone) == VERSION
-      @id = hash.extract(:volume).to_s
-      hash.extract(:tasks).each { |t| @tasks << Task.restore(t) }
+      hash.dig(:tasks)&.each { |t| session.tasks << Task.restore(t) }
+      self
     end
 
     #
@@ -399,12 +412,17 @@ module Mclone
     end
 
     #
+    def tasks
+      TaskSet.new(self).merge!(session.tasks)
+    end
+
+    #
     def to_h
       { mclone: VERSION, volume: id, tasks: tasks.collect { |task| task.to_h(self) } }
     end
 
     # Volume-bound set of tasks belonging to the specific volume
-    class VolumeTaskSet < Mclone::TaskSet
+    class TaskSet < Mclone::TaskSet
 
       def initialize(volume)
         @volume = volume
@@ -467,22 +485,26 @@ module Mclone
     attr_writer :simulate, :verbose, :force
 
     #
+    attr_reader :tasks
+
+    #
     def initialize
       @volumes = VolumeSet.new
+      @tasks = SessionTaskSet.new(self)
     end
 
     #
     def format_volume!(dir)
       mclone = File.join(dir, Volume::FILE)
       raise(Session::Error, %(refuse to overwrite existing Mclone volume file "#{mclone}")) if File.exist?(mclone) && !force?
-      @volumes << (volume = Volume.new(mclone))
+      volumes << (volume = Volume.new(self, mclone))
       volume.commit!(true) unless simulate? # Force creation of a new (empty) volume
       self
     end
 
     #
     def restore_volume!(dir)
-      @volumes << Volume.restore(File.join(dir, Volume::FILE))
+      volumes << Volume.restore(self, File.join(dir, Volume::FILE))
       self
     end
 
@@ -504,11 +526,9 @@ module Mclone
     #
     def create_task!(mode, source, destination, **kws)
       task = Task.new(mode, *locate(source), *locate(destination), **kws)
-      volumes.each do |volume|
-        t = volume.tasks[task]
-        raise(Session::Error, %(refuse to overwrite existing task "#{t.id}")) unless t.nil? || force?
-        volume.tasks << task # It is a volume's responsibility to collect appropriate tasks, see Volume::TaskSet#<<
-      end
+      _task = tasks[task]
+      raise(Session::Error, %(refuse to overwrite existing task "#{_task.id}")) unless _task.nil? || force?
+      tasks << task
       self
     end
 
@@ -519,15 +539,13 @@ module Mclone
       task.mode = mode unless mode.nil?
       task.include = include unless include.nil?
       task.exclude = exclude unless exclude.nil?
-      volumes.each { |volume| volume.tasks << task }
+      tasks << task
       self
     end
 
     #
     def delete_task!(id)
-      ts = tasks
-      task = ts.task(ts.resolve(id))
-      volumes.each { |volume| volume.tasks >> task }
+      tasks >> tasks.task(tasks.resolve(id))
       self
     end
 
@@ -555,7 +573,10 @@ module Mclone
         opts.append('--filter', "- #{task.exclude}") unless task.exclude.nil? || task.exclude.empty?
         opts.append('--filter', "+ #{task.include}") unless task.include.nil? || task.include.empty?
         args.concat(opts)
-        args.append(File.join(volumes.volume(task.source_id).root, task.source_root), File.join(volumes.volume(task.destination_id).root, task.destination_root))
+        args.append(
+          File.join(volumes.volume(task.source_id).root, task.source_root.nil? ? EMPTY_STRING : task.source_root),
+          File.join(volumes.volume(task.destination_id).root, task.destination_root.nil? ? EMPTY_STRING : task.destination_root)
+        )
         case system(*args)
         when nil then raise(Session::Error, %(failed to execute "#{args.first}"))
         when false then exit($?)
@@ -563,18 +584,11 @@ module Mclone
       end
     end
 
-    # Collect all tasks from all loaded volumes
-    def tasks
-      tasks = SessionTaskSet.new(self)
-      volumes.each { |volume| tasks.merge!(volume.tasks) }
-      tasks
-    end
+    EMPTY_STRING = ''
 
     # Collect all tasks from all loaded volumes which are ready to be executed
     def intact_tasks
-      tasks = IntactTaskSet.new(self)
-      volumes.each { |volume| tasks.merge!(volume.tasks) }
-      tasks
+      IntactTaskSet.new(self).merge!(tasks)
     end
 
     #
