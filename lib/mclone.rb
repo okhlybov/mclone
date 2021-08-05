@@ -5,6 +5,7 @@ require 'date'
 require 'json'
 require 'open3'
 require 'fileutils'
+require 'shellwords'
 require 'securerandom'
 
 
@@ -179,8 +180,9 @@ module Mclone
     alias == eql?
 
     #
-    def initialize(mode, source_id, source_root, destination_id, destination_root, include: nil, exclude: nil, crypter_mode: nil, crypter_token: nil, crypter_password: nil)
+    def initialize(session, mode, source_id, source_root, destination_id, destination_root, include: nil, exclude: nil, crypter_mode: nil, crypter_token: nil, crypter_password: nil)
       @touch = false # Indicates that the time stamp should be updated whenever state of self is altered
+      @session = session
       @id = SecureRandom.hex(4)
       @source_id = source_id
       @destination_id = destination_id
@@ -225,7 +227,10 @@ module Mclone
         if @@crypter_tokens[id].nil?
           # If token is neither locally assigned nor in repository, try to construct it from the user-supplied password
           # If a user-supplied password is omitted, create a new randomly generated password
-          stdout, status = Open3.capture2(Mclone.rclone, 'obscure', @assigned_password.nil? ? SecureRandom.alphanumeric(16) : @assigned_password)
+          args = [Mclone.rclone, 'obscure', @assigned_password.nil? ? SecureRandom.alphanumeric(16) : @assigned_password]
+          $stdout << args.collect(&:shellescape).join(' ') << "\n" if @session.verbose?
+          stdout, status = Open3.capture2(*args)
+          raise(Task::Error, %(Rclone execution failure)) unless status.success?
           @@crypter_tokens[id] = stdout.strip
         else
           @@crypter_tokens[id]
@@ -258,14 +263,15 @@ module Mclone
     end
 
     #
-    def self.restore(hash)
+    def self.restore(session, hash)
       obj = allocate
-      obj.send(:from_h, hash)
+      obj.send(:from_h, session, hash)
       obj
     end
 
     #
-    private def from_h(hash)
+    private def from_h(session, hash)
+      @session = session
       @touch = false
       @id = hash.extract(:task)
       @mtime = DateTime.parse(hash.extract(:mtime)) rescue DateTime.now # Deleting mtime entry from json can be used to modify data out of mclone
@@ -278,7 +284,6 @@ module Mclone
       self.exclude = hash.dig(:exclude)
       set_crypter_mode hash.dig(:crypter, :mode)
       @assigned_token = register_crypter_token(hash.dig(:crypter, :token)) unless crypter_mode.nil?
-      p self
     ensure
       @touch = true
     end
@@ -363,9 +368,6 @@ module Mclone
     end
 
     #
-    attr_reader :session
-
-    #
     def initialize(session, file)
       @id = SecureRandom.hex(4)
       @session = session
@@ -386,7 +388,7 @@ module Mclone
       @session = session
       @file = file
       raise(Volume::Error, %(unsupported Mclone volume format version "#{version}")) unless hash.extract(:mclone) == VERSION
-      hash.dig(:tasks)&.each { |t| session.tasks << Task.restore(t) }
+      hash.dig(:tasks)&.each { |t| session.tasks << Task.restore(@session, t) }
       self
     end
 
@@ -420,7 +422,7 @@ module Mclone
 
     #
     def tasks
-      TaskSet.new(self).merge!(session.tasks)
+      TaskSet.new(self).merge!(@session.tasks)
     end
 
     #
@@ -532,7 +534,7 @@ module Mclone
 
     #
     def create_task!(mode, source, destination, **kws)
-      task = Task.new(mode, *locate(source), *locate(destination), **kws)
+      task = Task.new(self, mode, *locate(source), *locate(destination), **kws)
       _task = tasks[task]
       raise(Session::Error, %(refuse to overwrite existing task "#{_task.id}")) unless _task.nil? || force?
       tasks << task
@@ -590,7 +592,7 @@ module Mclone
         when :encrypt then args.append(source_path, ':crypt:')
         when :decrypt then args.append(':crypt:', destination_path)
         end
-        $stdout << args.join(' ') << "\n" if verbose?
+        $stdout << args.collect(&:shellescape).join(' ') << "\n" if verbose?
         case system(*args)
         when nil
           $stderr << %(failed to execute "#{args.first}") << "\n" if verbose?
@@ -600,7 +602,7 @@ module Mclone
           failed = true
         end
       end
-      raise(Session::Error, "there were Rclone failures") if failed
+      raise(Session::Error, "Rclone execution failure(s)") if failed
       self
     end
 
