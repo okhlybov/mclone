@@ -7,7 +7,7 @@ set -e
 
 [[ "$MSYSTEM" == "MINGW32" ]] || { echo "Run this script from within the MinGW32@MSYS2 shell"; exit 1; }
 
-version=0.1.1
+version=0.2.0
 release=1
 
 tag=mclone-$version-win32-$release
@@ -37,7 +37,7 @@ ruby ../md2html.rb ../README.md "$dist"/doc/README.html
 
 (
 	cd "$dist/ruby"
-	cmd /c "bin\\gem install mclone -v $version"
+	cmd /c "bin\\gem install ../../../mclone-$version.gem"
 	rm -rf include packages share ridk_use lib/*.a lib/pkgconfig lib/ruby/gems/*/cache/*
 	cd "$dist"/rclone
 	find -not -name '*.exe' -and -type f -exec rm -rf {} \;

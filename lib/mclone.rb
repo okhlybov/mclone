@@ -3,6 +3,7 @@
 
 require 'date'
 require 'json'
+require 'open3'
 require 'fileutils'
 require 'securerandom'
 
@@ -221,16 +222,13 @@ module Mclone
         @@crypter_tokens[id] = @assigned_token unless @@crypter_tokens[id].nil? # Assign repository entry with this local token if not yet assigned
         @assigned_token
       else
-        unless @@crypter_tokens[id].nil?
-          @@crypter_tokens[id]
+        if @@crypter_tokens[id].nil?
+          # If token is neither locally assigned nor in repository, try to construct it from the user-supplied password
+          # If a user-supplied password is omitted, create a new randomly generated password
+          stdout, status = Open3.capture2(Mclone.rclone, 'obscure', @assigned_password.nil? ? SecureRandom.alphanumeric(16) : @assigned_password)
+          @@crypter_tokens[id] = stdout.strip
         else
-          # If token is neither locally assigned nor in repository, try to construct it from the password
-          @@crypter_tokens[id] =
-            if @assigned_password.nil?
-              %x('#{Mclone.rclone}' obscure '#{SecureRandom.alphanumeric(16)}').strip # Create Rclone token from randomly generated password
-            else
-              %x('#{Mclone.rclone}' obscure '#{@assigned_password}').strip # Create Rclone token from locally assigned plain text password
-            end
+          @@crypter_tokens[id]
         end
       end
     end
@@ -280,6 +278,7 @@ module Mclone
       self.exclude = hash.dig(:exclude)
       set_crypter_mode hash.dig(:crypter, :mode)
       @assigned_token = register_crypter_token(hash.dig(:crypter, :token)) unless crypter_mode.nil?
+      p self
     ensure
       @touch = true
     end
@@ -404,9 +403,17 @@ module Mclone
     #
     def commit!(force = false)
       if force || tasks.modified?
-        open(file, 'w') do |stream|
-          stream << JSON.pretty_generate(to_h)
-          tasks.commit!
+        # As a safeguard against malformed volume files generation, first write to a new file
+        # and rename it to a real volume file only in case of normal turn of events
+        _file = "#{file}.next"
+        begin
+          open(_file, 'w') do |stream|
+            stream << JSON.pretty_generate(to_h)
+            tasks.commit!
+          end
+          FileUtils.mv(_file, file, force: true)
+        ensure
+          FileUtils.rm_f(_file)
         end
       end
     end
