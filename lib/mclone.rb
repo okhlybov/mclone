@@ -41,6 +41,11 @@ module Mclone
       end
     end
 
+    refine ::String do
+      def escape
+        Mclone.windows? && %r![^\w\-\=\\\/:]!.match?(self) ? %("#{self}") : shellescape
+      end
+    end
   end
 
 
@@ -77,6 +82,20 @@ module Mclone
       @objects = {} # { object => object }
       @modified = false
     end
+
+    protected attr_reader :objects
+
+    #
+    def hash
+      @objects.hash
+    end
+
+    #
+    def eql?(other)
+      equal?(other) || objects == other.objects
+    end
+
+    alias == eql?
 
     # Return ID of the object considered equal to the specified obj or nil
     def id(obj)
@@ -228,7 +247,7 @@ module Mclone
           # If token is neither locally assigned nor in repository, try to construct it from the user-supplied password
           # If a user-supplied password is omitted, create a new randomly generated password
           args = [Mclone.rclone, 'obscure', @assigned_password.nil? ? SecureRandom.alphanumeric(16) : @assigned_password]
-          $stdout << args.collect(&:shellescape).join(' ') << "\n" if @session.verbose?
+          $stdout << args.collect(&:escape).join(' ') << "\n" if @session.verbose?
           stdout, status = Open3.capture2(*args)
           raise(Task::Error, %(Rclone execution failure)) unless status.success?
           @@crypter_tokens[id] = stdout.strip
@@ -369,6 +388,7 @@ module Mclone
 
     #
     def initialize(session, file)
+      @loaded_tasks = ObjectSet.new
       @id = SecureRandom.hex(4)
       @session = session
       @file = file
@@ -384,11 +404,12 @@ module Mclone
     #
     private def from_file(session, file)
       hash = JSON.parse(IO.read(file), symbolize_names: true)
+      @loaded_tasks = ObjectSet.new
       @id = hash.extract(:volume)
       @session = session
       @file = file
       raise(Volume::Error, %(unsupported Mclone volume format version "#{version}")) unless hash.extract(:mclone) == VERSION
-      hash.dig(:tasks)&.each { |t| session.tasks << Task.restore(@session, t) }
+      hash.dig(:tasks)&.each { |h| session.tasks << (@loaded_tasks << Task.restore(@session, h)) }
       self
     end
 
@@ -403,11 +424,17 @@ module Mclone
     end
 
     #
+    def modified?
+      # Comparison against the original loaded tasks set allows to account for task removals
+      (ts = tasks).modified? || ts != @loaded_tasks
+    end
+
+    #
     def commit!(force = false)
-      if force || tasks.modified?
+      if force || @session.force? || modified?
         # As a safeguard against malformed volume files generation, first write to a new file
         # and rename it to a real volume file only in case of normal turn of events
-        _file = "#{file}.next"
+        _file = "#{file}~"
         begin
           open(_file, 'w') do |stream|
             stream << JSON.pretty_generate(to_h)
@@ -418,6 +445,7 @@ module Mclone
           FileUtils.rm_f(_file)
         end
       end
+      self
     end
 
     #
@@ -570,7 +598,8 @@ module Mclone
         opts = [
           '--config', Mclone.windows? ? 'NUL' : '/dev/null',
           simulate? ? '--dry-run' : nil,
-          verbose? ? '--verbose' : nil
+          verbose? ? '--verbose' : nil,
+          verbose? ? '--progress' : nil
         ].compact
         opts.append('--crypt-password', task.crypter_token) unless task.crypter_mode.nil?
         case task.crypter_mode
@@ -592,7 +621,7 @@ module Mclone
         when :encrypt then args.append(source_path, ':crypt:')
         when :decrypt then args.append(':crypt:', destination_path)
         end
-        $stdout << args.collect(&:shellescape).join(' ') << "\n" if verbose?
+        $stdout << args.collect(&:escape).join(' ') << "\n" if verbose?
         case system(*args)
         when nil
           $stderr << %(failed to execute "#{args.first}") << "\n" if verbose?

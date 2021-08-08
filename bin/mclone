@@ -13,6 +13,8 @@ Clamp do
 
   using Refinements
 
+  self.default_subcommand = 'info'
+
   option ['-f', '--force'], :flag, 'Insist on potentially dangerous actions', default: false
   option ['-n', '--dry-run'], :flag, 'Simulation mode with no on-disk modifications', default: false
   option ['-v', '--verbose'], :flag, 'Verbose operation', default: false
@@ -93,7 +95,7 @@ Clamp do
 
   end
 
-  subcommand ['task'], 'Task operations' do
+  subcommand 'task', 'Task operations' do
 
     def self.set_task_opts
       modes = Task::MODES.collect(&:to_s).join(' | ')
