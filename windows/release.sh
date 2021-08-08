@@ -27,6 +27,8 @@ gcc -O2 -DNDEBUG -s -o "$dist"/bin/mclone.exe mclone.c
 
 ruby ../md2html.rb ../README.md "$dist"/doc/README.html
 
+gem build mclone.gemspec
+
 (
 	cd "$dist"
 	7z x "$cache"/rubyinstaller-*x86.7z

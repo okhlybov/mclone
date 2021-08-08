@@ -269,6 +269,41 @@ storage in the above way.
 
 Consider a two-way synchronization between two storages with a portable ferry which carries and propagates data in both directions.
 
+## Encryption
+
+Encryption is an essential part of the Mclone as it is all about handling portable storage which may by compromised
+while holding confidential data. Mclone fully relies on [encryption capabilities](https://rclone.org/crypt/) of Rclone,
+that is an encrypted directory structure can be further treated with the Rclone itself.
+
+The encryption operation in Mclone is activated during task creation time.
+The encryption mode is activated with `-e` or `-d` command line flag for encryption or decryption, respectively.
+It no either flag is specified, the encryption gets turned off.
+
+When in encryption mode, Mclone recursively takes plain files and directories under the source root and creates encrypted
+files and directories under the destination root.
+Conversely, when in decryption mode, Mclone takes encrypted source root and decrypts it into the destination root.
+Mclone is set up to encrypt not only the files' contents but also the file and directory names themselves. The file sizes,
+modification times as well as some other metadata are not encrypted, though, as they are required for proper operation 
+the file synchronization mechanism.
+Note that the encrypted root is a regular directory hierarchy (just with fancy file names) and thus can be treated as such.
+
+***Be wary that file name encryption has a serious implication on the file name length.***
+The Rclone [crypt](https://rclone.org/crypt/) documentation states the the individual file or directory name length can
+not exceed ~143 charactes (although ***bytes*** here would be more correct).
+As the Rclone accepts UTF-8 encoded names, this estimate generally holds true for the Latin charset only, where
+a character is encoded with a single byte.
+For non-Latin characters, which can be encoded with two or even more bytes, the maximum allowed name length be
+much lower.
+When Rclone encounters a file name too long to hold, it will refuse to process it.
+
+Rclone employs symmetric cryptography to do its job, which requires some form of password to be supplied upon task
+creation.
+This is done by the `-p` command line flag, which specifies a plain text password used to derive the real encryption key.
+There is another password-related `-t` command line flag which can be used to directly specify
+an [Rclone-obscured](https://rclone.org/commands/rclone_obscure/) token.
+Once created, a task memorizes the encryption key on the ***unencrypted end*** of the source/destination volume pair,
+so there will be no need to pass it during the task processing.
+
 ## Whats next
 
 ### On-screen help
@@ -279,20 +314,25 @@ Every `mclone` (sub)command has its own help page which can be shown with `--hel
 $ mclone task create --help
 
 Usage:
-    mclone task create [OPTIONS] SOURCE DESTINATION
+    mclone task new [OPTIONS] SOURCE DESTINATION
 
 Parameters:
-    SOURCE                   Source path
-    DESTINATION              Destination path
+    SOURCE                     Source path
+    DESTINATION                Destination path
 
 Options:
-    -m, --mode MODE          Operation mode (update | synchronize | copy | move) (default: "update")
-    -i, --include PATTERN    Include paths pattern (default: "**")
-    -x, --exclude PATTERN    Exclude paths pattern
-    -f, --force              Insist on potentially dangerous activities (default: false)
-    -n, --dry-run            Simulation mode with no on-disk modifications (default: false)
-    -v, --verbose            Verbose operation (default: false)
-    -h, --help               print help
+    -m, --mode MODE            Operation mode (update | synchronize | copy | move) (default: "update")
+    -i, --include PATTERN      Include paths pattern
+    -x, --exclude PATTERN      Exclude paths pattern
+    -d, --decrypt              Decrypt source
+    -e, --encrypt              Encrypt destination
+    -p, --password PASSWORD    Plain text password
+    -t, --token TOKEN          Rclone crypt token (obscured password)
+    -f, --force                Insist on potentially dangerous actions (default: false)
+    -n, --dry-run              Simulation mode with no on-disk modifications (default: false)
+    -v, --verbose              Verbose operation (default: false)
+    -V, --version              Show version
+    -h, --help                 print help
 ```
 
 ### File filtering
