@@ -13,7 +13,7 @@ require 'securerandom'
 module Mclone
 
 
-  VERSION = '0.2.0'
+  VERSION = '0.2.1'
 
 
   #
@@ -83,7 +83,7 @@ module Mclone
       @modified = false
     end
 
-    protected attr_reader :objects
+    attr_reader :objects; protected :objects
 
     #
     def hash
@@ -691,7 +691,7 @@ module Mclone
   end
 
   # Match OS-specific system mount points (/dev /proc etc.) which normally should be omitted when scanning for Mclone voulmes
-  UNIX_SYSTEM_MOUNTS = %r!^/(dev|sys|proc|run)!
+  UNIX_SYSTEM_MOUNTS = %r!^/(dev|sys|proc)!
 
   # TODO handle Windows variants
   # Specify OS-specific path name list separator (such as in the $PATH environment variable)
