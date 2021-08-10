@@ -1,3 +1,7 @@
+# 0.2.1 (2021-08-09)
+
+* Linux-related bugfixes.
+
 # 0.2.0 (2021-08-08)
 
 * Support for encryption.
