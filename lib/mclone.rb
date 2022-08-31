@@ -13,7 +13,7 @@ require 'securerandom'
 module Mclone
 
 
-  VERSION = '0.2.1'
+  VERSION = '0.3.0'
 
 
   #
@@ -703,44 +703,51 @@ module Mclone
     ENV['MCLONE_PATH'].split(PATH_LIST_SEPARATOR).collect { |path| File.directory?(path) ? path : nil }.compact rescue []
   end
   # Return list of live system-managed mounts (mount points on *NIX and disk drives on Windows) which may contain Mclone volumes
-  case RbConfig::CONFIG['target_os']
-  when 'linux'
-    # Linux OS
+  if RUBY_PLATFORM =~ /java/
+    require 'java'
     def self.system_mounts
-      # Query /proc for currently mounted file systems
-      IO.readlines('/proc/self/mountstats').collect do |line|
-        mount = line.split[4]
-        UNIX_SYSTEM_MOUNTS.match?(mount) || !File.directory?(mount) ? nil : mount
-      end.compact
-    end
-    # TODO handle Windows variants
-  when /^mingw/ # RubyInstaller's MRI
-	module Kernel32
-		require 'fiddle'
-		require 'fiddle/types'
-		require 'fiddle/import'
-		extend Fiddle::Importer
-		dlload('kernel32')
-		include Fiddle::Win32Types
-		extern 'DWORD WINAPI GetLogicalDrives()'
-	end  
-    def self.system_mounts
-      mounts = []
-      mask = Kernel32.GetLogicalDrives
-      ('A'..'Z').each do |x|
-        mounts << "#{x}:" if mask & 1 == 1
-        mask >>= 1
-      end
-      mounts
+      java.nio.file.FileSystems.getDefault.getFileStores.collect {|x| /^(.*)\s+\(.*\)$/.match(x.to_s)[1]}
     end
   else
-    # Generic *NIX-like OS, including Cygwin & MSYS(2)
-    def self.system_mounts
-      # Use $(mount) system utility to obtain currently mounted file systems
-      %x(mount).split("\n").collect do |line|
-        mount = line.split[2]
-        UNIX_SYSTEM_MOUNTS.match?(mount) || !File.directory?(mount) ? nil : mount
-      end.compact
+    case RbConfig::CONFIG['target_os']
+    when 'linux'
+      # Linux OS
+      def self.system_mounts
+        # Query /proc for currently mounted file systems
+        IO.readlines('/proc/self/mountstats').collect do |line|
+          mount = line.split[4]
+          UNIX_SYSTEM_MOUNTS.match?(mount) || !File.directory?(mount) ? nil : mount
+        end.compact
+      end
+      # TODO handle Windows variants
+    when /^mingw/ # RubyInstaller's MRI
+    module Kernel32
+      require 'fiddle'
+      require 'fiddle/types'
+      require 'fiddle/import'
+      extend Fiddle::Importer
+      dlload('kernel32')
+      include Fiddle::Win32Types
+      extern 'DWORD WINAPI GetLogicalDrives()'
+    end  
+      def self.system_mounts
+        mounts = []
+        mask = Kernel32.GetLogicalDrives
+        ('A'..'Z').each do |x|
+          mounts << "#{x}:" if mask & 1 == 1
+          mask >>= 1
+        end
+        mounts
+      end
+    else
+      # Generic *NIX-like OS, including Cygwin & MSYS(2)
+      def self.system_mounts
+        # Use $(mount) system utility to obtain currently mounted file systems
+        %x(mount).split("\n").collect do |line|
+          mount = line.split[2]
+          UNIX_SYSTEM_MOUNTS.match?(mount) || !File.directory?(mount) ? nil : mount
+        end.compact
+      end
     end
   end
 end

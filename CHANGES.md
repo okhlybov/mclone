@@ -1,3 +1,7 @@
+# 0.3.0 (2022-08-31)
+
+* JRuby platform support
+
 # 0.2.1 (2021-08-09)
 
 * Linux-related bugfixes.
